@@ -181,7 +181,7 @@ function init3d(){
     mlmap = new maplibregl.Map({
       container:'map3d',
       style:'https://tiles.openfreemap.org/styles/liberty',
-      bounds:[[77.6575,12.8432],[77.6684,12.8512]],
+      bounds:[[77.6560,12.8425],[77.6700,12.8520]],
       fitBoundsOptions:{padding:{top:150,bottom:110,left:30,right:30}, pitch:60, bearing:-25},
       minZoom:13.8,
       maxBounds:[[77.6520,12.8380],[77.6740,12.8560]],
@@ -249,8 +249,8 @@ attributionControl:{compact:true}
 
 function fit3d(){
   if (!mlmap) return;
-  mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:60, bearing:-25, duration:0});
-  if (mlmap.getZoom() < 14.2) mlmap.jumpTo({zoom:14.2});
+  mlmap.fitBounds([[77.6560,12.8425],[77.6700,12.8520]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:60, bearing:-25, duration:0});
+  if (mlmap.getZoom() < 14.0) mlmap.jumpTo({zoom:14.0});
 }
 
 /* ---------- view switching ---------- */
