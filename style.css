@@ -66,9 +66,15 @@ h2{font-size:clamp(26px,3.4vw,34px);margin:0 0 24px}
   .hero{padding-top:40px}
   nav{gap:14px}
   nav a{font-size:13px}
-  .stats,.steps,.roles,.creds{grid-template-columns:1fr}
+  .stats,.steps,.roles,.creds,.creds.certs{grid-template-columns:1fr}
   .skills div{grid-template-columns:1fr;gap:2px}
   .feature{padding:24px}
   .section{padding-top:56px}
 }
 @media (max-width:420px){ .brand{display:none} }
+
+.creds.certs{grid-template-columns:repeat(2,1fr)}
+.creds .cert-issuer{margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+.creds .cert-id{margin-top:10px;font-size:13px;line-height:1.6;font-variant-numeric:tabular-nums}
+.cert-link{display:inline-block;margin-top:12px;font-size:14px;font-weight:600;color:var(--ink)}
+@media (max-width:720px){.creds.certs{grid-template-columns:1fr}}
