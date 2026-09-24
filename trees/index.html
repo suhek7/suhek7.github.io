@@ -127,7 +127,7 @@ function pinEl(t){
 }
 
 /* ---------- 2D map (Leaflet) ---------- */
-var map = L.map('map', {zoomControl:false});
+var map = L.map('map', {zoomControl:false, minZoom:15, maxBounds:[[12.8380,77.6520],[12.8560,77.6740]], maxBoundsViscosity:0.9});
 var BOUNDS = L.latLngBounds([[12.8432,77.6565],[12.8512,77.6685]]);
 map.fitBounds(BOUNDS, {padding:[20,20]});
 L.control.zoom({position:'bottomright'}).addTo(map);
@@ -176,20 +176,43 @@ function loadScript(src){
 function init3d(){
   if (mlmap) return Promise.resolve(true);
   if (mlLoading) return mlLoading;
-  mlLoading = loadScript('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js').then(function(){
-    var link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'; document.head.appendChild(link);
+  mlLoading = loadScript('https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js').then(function(){
+    var link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css'; document.head.appendChild(link);
     mlmap = new maplibregl.Map({
       container:'map3d',
       style:'https://tiles.openfreemap.org/styles/liberty',
       bounds:[[77.6575,12.8432],[77.6684,12.8512]],
-      fitBoundsOptions:{padding:{top:150,bottom:110,left:30,right:30}, pitch:55, bearing:-15},
+      fitBoundsOptions:{padding:{top:150,bottom:110,left:30,right:30}, pitch:60, bearing:-25},
+      minZoom:13.8,
+      maxBounds:[[77.6520,12.8380],[77.6740,12.8560]],
 attributionControl:{compact:true}
     });
     mlmap.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
     mlmap.on('load', function(){ fit3d();
+      if (mlmap.setSky) mlmap.setSky({
+        'sky-color':'#8fb7d9',
+        'horizon-color':'#f6ecd8',
+        'sky-horizon-blend':0.7,
+        'atmosphere-blend':['interpolate',['linear'],['zoom'],13,0.7,16,0.3]
+      });
       var layers = mlmap.getStyle().layers || [];
       var labelLayerId;
       layers.forEach(function(l){ if (l.type==='symbol' && l.layout && l.layout['text-field'] && !labelLayerId) labelLayerId = l.id; });
+      mlmap.addLayer({
+        id:'campus-3d-shadows',
+        source:'openmaptiles',
+        'source-layer':'building',
+        type:'fill-extrusion',
+        minzoom:14,
+        paint:{
+          'fill-extrusion-color':'#2e2a26',
+          'fill-extrusion-height':0,
+          'fill-extrusion-base':0,
+          'fill-extrusion-opacity':0.22,
+          'fill-extrusion-translate':[7,9],
+          'fill-extrusion-translate-anchor':'viewport'
+        }
+      }, labelLayerId);
       mlmap.addLayer({
         id:'campus-3d-buildings',
         source:'openmaptiles',
@@ -197,10 +220,14 @@ attributionControl:{compact:true}
         type:'fill-extrusion',
         minzoom:14,
         paint:{
-          'fill-extrusion-color':'#e6d3b3',
+          'fill-extrusion-color':['case',
+            ['has','colour'], ['get','colour'],
+            ['interpolate',['linear'],['coalesce',['get','render_height'],10],
+              0,'#ead9bc', 15,'#e0c9a6', 35,'#d0b28c', 70,'#b99673']],
           'fill-extrusion-height':['coalesce',['get','render_height'],10],
           'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
-          'fill-extrusion-opacity':0.92
+          'fill-extrusion-opacity':0.94,
+          'fill-extrusion-vertical-gradient':true
         }
       }, labelLayerId);
       // hide flat 2D building fills so the extrusions read cleanly
@@ -222,7 +249,7 @@ attributionControl:{compact:true}
 
 function fit3d(){
   if (!mlmap) return;
-  mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:55, bearing:-15, duration:0});
+  mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:60, bearing:-25, duration:0});
   if (mlmap.getZoom() < 14.2) mlmap.jumpTo({zoom:14.2});
 }
 
