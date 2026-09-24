@@ -23,9 +23,20 @@
   .viewswitch button.active { background:#73a89a; color:#fff; }
   .tree-pin { width:28px; height:28px; border-radius:50%; background:#73a89a; color:#fff; font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; border:2px solid #73a89a; box-shadow:0 1px 4px rgba(0,0,0,.45); cursor:pointer; }
   .tree-pin.approx { background:rgba(255,255,255,.92); color:#73a89a; border-style:dashed; }
-  .leaflet-popup-content { width:250px !important; }
-  .maplibregl-popup-content { width:250px; padding:12px; border-radius:10px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
-  .maplibregl-popup-close-button { right:4px; top:2px; font-size:16px; }
+  .sheet { position:fixed; z-index:1100; background:#fff; box-shadow:0 -6px 28px rgba(0,0,0,.28); overflow-y:auto; -webkit-overflow-scrolling:touch; transition:transform .28s ease; }
+  .sheethead { position:sticky; top:0; background:#fff; display:flex; align-items:center; justify-content:flex-end; padding:6px 10px 2px; z-index:2; }
+  .sheet .closebtn { width:34px; height:34px; border-radius:50%; border:0; background:#f0ebec; color:#585254; font-size:19px; line-height:1; cursor:pointer; flex:0 0 auto; }
+  .grab { width:44px; height:5px; border-radius:3px; background:#d8d3d4; margin:3px auto 0; display:none; flex:0 0 auto; }
+  .sheetbody { padding:2px 18px 26px; }
+  @media (max-width:767px){
+    .sheet{ left:0; right:0; bottom:0; max-height:60vh; border-radius:18px 18px 0 0; transform:translateY(110%); }
+    .sheet.open{ transform:translateY(0); }
+    .grab{ display:block; position:absolute; left:50%; transform:translateX(-50%); top:4px; }
+  }
+  @media (min-width:768px){
+    .sheet{ top:0; right:0; bottom:0; width:350px; transform:translateX(110%); }
+    .sheet.open{ transform:translateX(0); }
+  }
   .pop img { width:100%; border-radius:8px; margin-bottom:6px; }
   .pop h3 { margin:0 0 2px; font-size:15px; }
   .pop .role { font-size:12px; color:#585254; margin:0 0 6px; }
@@ -54,6 +65,10 @@
   <button data-view="streets">Streets</button>
   <button data-view="illustrated">Illustrated</button>
   <button data-view="3d">3D</button>
+</div>
+<div class="sheet" id="sheet" role="dialog" aria-label="Tree details">
+  <div class="sheethead" id="sheethead"><span class="grab"></span><button class="closebtn" id="sheetclose" aria-label="Close">&#10005;</button></div>
+  <div class="sheetbody" id="sheetbody"></div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -123,10 +138,35 @@ var streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 var illustrated = L.imageOverlay('assets/campus-illustrated.png',
   [[12.838581915230746,77.6458740234375],[12.860004340637046,77.67333984375]],
   {attribution:'Illustration drawn from &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
+var sheet = document.getElementById('sheet');
+function showTree(t){
+  document.getElementById('sheetbody').innerHTML = popupHtml(t);
+  sheet.classList.add('open');
+}
+function hideTree(){ sheet.classList.remove('open'); }
+document.getElementById('sheetclose').addEventListener('click', hideTree);
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') hideTree(); });
+(function(){
+  var head = document.getElementById('sheethead'), startY = null, dy = 0;
+  head.addEventListener('touchstart', function(e){ startY = e.touches[0].clientY; dy = 0; }, {passive:true});
+  head.addEventListener('touchmove', function(e){
+    if (startY === null) return;
+    dy = e.touches[0].clientY - startY;
+    if (dy > 0) sheet.style.transform = 'translateY(' + dy + 'px)';
+  }, {passive:true});
+  head.addEventListener('touchend', function(){
+    if (dy > 70) hideTree();
+    sheet.style.transform = '';
+    startY = null; dy = 0;
+  }, {passive:true});
+})();
+
 TREES.forEach(function(t){
   var icon = L.divIcon({className:'', html:'<div class="tree-pin'+(t.approx?' approx':'')+'">'+t.n+'</div>', iconSize:[28,28], iconAnchor:[14,14]});
-  L.marker([t.lat, t.lng], {icon:icon, title:t.n+'. '+t.planter}).addTo(map).bindPopup(popupHtml(t), {maxWidth:270});
+  var m = L.marker([t.lat, t.lng], {icon:icon, title:t.n+'. '+t.planter}).addTo(map);
+  m.on('click', function(e){ L.DomEvent.stopPropagation(e); showTree(t); });
 });
+map.on('click', hideTree);
 
 /* ---------- 3D map (MapLibre, lazy) ---------- */
 var mlmap = null, mlLoading = false;
@@ -167,12 +207,10 @@ attributionControl:{compact:true}
       layers.forEach(function(l){ if (l['source-layer']==='building' && l.id!=='campus-3d-buildings') { try{ mlmap.setLayoutProperty(l.id,'visibility','none'); }catch(e){} } });
       TREES.forEach(function(t){
         var el = pinEl(t);
-        var popup = new maplibregl.Popup({maxWidth:'270px', offset:18});
-        var holder = document.createElement('div');
-        holder.innerHTML = popupHtml(t);
-        popup.setDOMContent(holder.firstChild);
-        new maplibregl.Marker({element:el}).setLngLat([t.lng, t.lat]).setPopup(popup).addTo(mlmap);
+        el.addEventListener('click', function(ev){ ev.stopPropagation(); showTree(t); });
+        new maplibregl.Marker({element:el}).setLngLat([t.lng, t.lat]).addTo(mlmap);
       });
+      mlmap.on('click', hideTree);
     });
     return true;
   }).catch(function(e){
