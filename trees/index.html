@@ -78,7 +78,9 @@ var TREES = [
   note:"Same species as Aung San Suu Kyi's 2012 tree. His photo shows the plaque: \u201cthis tree is planted by Ashish Vidyarthi\u201d."}
 ];
 
-var map = L.map('map', {zoomControl:false}).setView([12.8462, 77.6623], 16);
+var map = L.map('map', {zoomControl:false});
+var BOUNDS = L.latLngBounds([[12.8432,77.6565],[12.8512,77.6685]]);
+map.fitBounds(BOUNDS, {padding:[20,20]});
 L.control.zoom({position:'bottomright'}).addTo(map);
 var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
   attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom:19}).addTo(map);
