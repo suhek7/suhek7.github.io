@@ -138,14 +138,11 @@ function init3d(){
   if (mlLoading) return mlLoading;
   mlLoading = loadScript('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js').then(function(){
     var link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'; document.head.appendChild(link);
-    var c = map.getCenter(), z = map.getZoom();
     mlmap = new maplibregl.Map({
       container:'map3d',
       style:'https://tiles.openfreemap.org/styles/liberty',
-      center:[c.lng, c.lat],
-      zoom:z,
-      pitch:55,
-      bearing:-15,
+      bounds:[[77.6575,12.8432],[77.6684,12.8512]],
+      fitBoundsOptions:{padding:{top:170,bottom:130,left:50,right:50}, pitch:55, bearing:-15},
 attributionControl:{compact:true}
     });
     mlmap.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
@@ -200,8 +197,7 @@ function setView(v){
         currentView=prev; refreshButtons(); return;
       }
       mlmap.resize();
-      var c=map.getCenter();
-      mlmap.jumpTo({center:[c.lng,c.lat], zoom:map.getZoom()});
+      mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:170,bottom:130,left:50,right:50}, pitch:55, bearing:-15, duration:0});
       currentView = v; refreshButtons();
     });
     return;
