@@ -7,7 +7,8 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   html, body { margin:0; height:100%; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#251f21; }
-  #map { position:fixed; inset:0; }
+  #map, #map3d { position:fixed; inset:0; }
+  #map3d { display:none; }
   .panel { position:fixed; top:12px; left:12px; z-index:1000; background:rgba(255,255,255,.95); border-radius:12px; padding:14px 16px; max-width:340px; box-shadow:0 2px 12px rgba(0,0,0,.25); }
   .panel h1 { font-size:17px; margin:0 0 4px; }
   .panel p { font-size:12.5px; margin:4px 0; color:#585254; line-height:1.45; }
@@ -16,9 +17,14 @@
   .dot { width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:5px; }
   .dot.doc { background:#73a89a; }
   .dot.approx { background:#fff; border:2px dashed #73a89a; width:9px; height:9px; }
-  .tree-pin { width:28px; height:28px; border-radius:50%; background:#73a89a; color:#fff; font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; border:2px solid #73a89a; box-shadow:0 1px 4px rgba(0,0,0,.45); }
+  .viewswitch { position:fixed; top:12px; right:12px; z-index:1000; background:rgba(255,255,255,.95); border-radius:999px; box-shadow:0 2px 12px rgba(0,0,0,.25); padding:4px; display:flex; gap:2px; }
+  .viewswitch button { border:0; background:transparent; border-radius:999px; padding:7px 12px; font-size:12.5px; font-weight:600; color:#585254; cursor:pointer; white-space:nowrap; }
+  .viewswitch button.active { background:#73a89a; color:#fff; }
+  .tree-pin { width:28px; height:28px; border-radius:50%; background:#73a89a; color:#fff; font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; border:2px solid #73a89a; box-shadow:0 1px 4px rgba(0,0,0,.45); cursor:pointer; }
   .tree-pin.approx { background:rgba(255,255,255,.92); color:#73a89a; border-style:dashed; }
   .leaflet-popup-content { width:250px !important; }
+  .maplibregl-popup-content { width:250px; padding:12px; border-radius:10px; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
+  .maplibregl-popup-close-button { right:4px; top:2px; font-size:16px; }
   .pop img { width:100%; border-radius:8px; margin-bottom:6px; }
   .pop h3 { margin:0 0 2px; font-size:15px; }
   .pop .role { font-size:12px; color:#585254; margin:0 0 6px; }
@@ -28,11 +34,12 @@
   .pop .src { margin-top:6px; font-size:12px; }
   .pop .credit { font-size:11px; color:#8a8486; margin-top:2px; }
   .pop .note { margin-top:6px; font-size:12px; background:#f4efec; border-radius:8px; padding:6px 8px; }
-  @media (max-width:600px){ .panel{max-width:250px; padding:10px 12px;} .panel h1{font-size:15px;} }
+  @media (max-width:600px){ .panel{max-width:250px; padding:10px 12px;} .panel h1{font-size:15px;} .viewswitch button{padding:6px 9px; font-size:12px;} }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="map3d"></div>
 <div class="panel">
   <h1>The VIP trees of Infosys Bangalore</h1>
   <p>7 documented plantings on the Electronic City campus, 2001 to 2019. Every tree has a public source - tap a pin for the story.</p>
@@ -40,6 +47,12 @@
     <span><i class="dot doc"></i>documented spot</span>
     <span><i class="dot approx"></i>approximate pin</span>
   </div>
+</div>
+<div class="viewswitch" id="viewswitch">
+  <button data-view="satellite" class="active">Satellite</button>
+  <button data-view="streets">Streets</button>
+  <button data-view="illustrated">Illustrated</button>
+  <button data-view="3d">3D</button>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -78,16 +91,6 @@ var TREES = [
   note:"Same species as Aung San Suu Kyi's 2012 tree. His photo shows the plaque: \u201cthis tree is planted by Ashish Vidyarthi\u201d."}
 ];
 
-var map = L.map('map', {zoomControl:false});
-var BOUNDS = L.latLngBounds([[12.8432,77.6565],[12.8512,77.6685]]);
-map.fitBounds(BOUNDS, {padding:[20,20]});
-L.control.zoom({position:'bottomright'}).addTo(map);
-var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom:19}).addTo(map);
-var streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom:19});
-L.control.layers({"Satellite":sat, "Streets":streets}, null, {position:'bottomright'}).addTo(map);
-
 function popupHtml(t){
   var h = '<div class="pop">';
   if (t.photo) h += '<img src="'+t.photo+'" alt=""><div class="credit">'+t.credit+'</div>';
@@ -100,10 +103,121 @@ function popupHtml(t){
   h += '<div class="src">Source: <a href="'+t.src+'" target="_blank" rel="noopener">'+t.srcLabel+'</a></div></div>';
   return h;
 }
+function pinEl(t){
+  var d = document.createElement('div');
+  d.className = 'tree-pin' + (t.approx ? ' approx' : '');
+  d.textContent = t.n;
+  return d;
+}
+
+/* ---------- 2D map (Leaflet) ---------- */
+var map = L.map('map', {zoomControl:false});
+var BOUNDS = L.latLngBounds([[12.8432,77.6565],[12.8512,77.6685]]);
+map.fitBounds(BOUNDS, {padding:[20,20]});
+L.control.zoom({position:'bottomright'}).addTo(map);
+var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom:19}).addTo(map);
+var streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom:19});
+var illustrated = L.imageOverlay('assets/campus-illustrated.png',
+  [[12.838581915230746,77.6458740234375],[12.860004340637046,77.67333984375]],
+  {attribution:'Illustration drawn from &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
 TREES.forEach(function(t){
   var icon = L.divIcon({className:'', html:'<div class="tree-pin'+(t.approx?' approx':'')+'">'+t.n+'</div>', iconSize:[28,28], iconAnchor:[14,14]});
   L.marker([t.lat, t.lng], {icon:icon, title:t.n+'. '+t.planter}).addTo(map).bindPopup(popupHtml(t), {maxWidth:270});
 });
+
+/* ---------- 3D map (MapLibre, lazy) ---------- */
+var mlmap = null, mlLoading = false;
+function loadScript(src){
+  return new Promise(function(res, rej){ var s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+}
+function init3d(){
+  if (mlmap) return Promise.resolve(true);
+  if (mlLoading) return mlLoading;
+  mlLoading = loadScript('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js').then(function(){
+    var link=document.createElement('link'); link.rel='stylesheet'; link.href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'; document.head.appendChild(link);
+    var c = map.getCenter(), z = map.getZoom();
+    mlmap = new maplibregl.Map({
+      container:'map3d',
+      style:'https://tiles.openfreemap.org/styles/liberty',
+      center:[c.lng, c.lat],
+      zoom:z,
+      pitch:55,
+      bearing:-15,
+      attributionControl:{compact:true, customAttribution:'&copy; <a href="https://openfreemap.org">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+    });
+    mlmap.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
+    mlmap.on('load', function(){
+      var layers = mlmap.getStyle().layers || [];
+      var labelLayerId;
+      layers.forEach(function(l){ if (l.type==='symbol' && l.layout && l.layout['text-field'] && !labelLayerId) labelLayerId = l.id; });
+      mlmap.addLayer({
+        id:'campus-3d-buildings',
+        source:'openmaptiles',
+        'source-layer':'building',
+        type:'fill-extrusion',
+        minzoom:14,
+        paint:{
+          'fill-extrusion-color':'#e6d3b3',
+          'fill-extrusion-height':['coalesce',['get','render_height'],10],
+          'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
+          'fill-extrusion-opacity':0.92
+        }
+      }, labelLayerId);
+      // hide flat 2D building fills so the extrusions read cleanly
+      layers.forEach(function(l){ if (l['source-layer']==='building' && l.id!=='campus-3d-buildings') { try{ mlmap.setLayoutProperty(l.id,'visibility','none'); }catch(e){} } });
+      TREES.forEach(function(t){
+        var el = pinEl(t);
+        var popup = new maplibregl.Popup({maxWidth:'270px', offset:18});
+        var holder = document.createElement('div');
+        holder.innerHTML = popupHtml(t);
+        popup.setDOMContent(holder.firstChild);
+        new maplibregl.Marker({element:el}).setLngLat([t.lng, t.lat]).setPopup(popup).addTo(mlmap);
+      });
+    });
+    return true;
+  }).catch(function(e){
+    console.warn('3D unavailable', e);
+    return false;
+  });
+  return mlLoading;
+}
+
+/* ---------- view switching ---------- */
+var currentView = 'satellite';
+function setView(v){
+  if (v === currentView) return;
+  var prev = currentView;
+  if (v === '3d'){
+    init3d().then(function(ok){
+      if (!ok){ currentView=prev; refreshButtons(); return; }
+      if (mlmap){ var c=map.getCenter(); mlmap.jumpTo({center:[c.lng,c.lat], zoom:map.getZoom()}); }
+      document.getElementById('map3d').style.display='block';
+      document.getElementById('map').style.visibility='hidden';
+      currentView = v; refreshButtons();
+    });
+    return;
+  }
+  document.getElementById('map3d').style.display='none';
+  document.getElementById('map').style.visibility='visible';
+  if (mlmap){ var c3=mlmap.getCenter(); map.setView([c3.lat, c3.lng], mlmap.getZoom()); }
+  map.removeLayer(sat); map.removeLayer(streets); map.removeLayer(illustrated);
+  if (v==='satellite') sat.addTo(map);
+  if (v==='streets') streets.addTo(map);
+  if (v==='illustrated') illustrated.addTo(map);
+  map.invalidateSize();
+  currentView = v; refreshButtons();
+}
+function refreshButtons(){
+  document.querySelectorAll('#viewswitch button').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-view')===currentView);
+  });
+}
+document.querySelectorAll('#viewswitch button').forEach(function(b){
+  b.addEventListener('click', function(){ setView(b.getAttribute('data-view')); });
+});
+window.addEventListener('resize', function(){ map.invalidateSize(); if (mlmap) mlmap.resize(); });
 </script>
 </body>
 </html>
