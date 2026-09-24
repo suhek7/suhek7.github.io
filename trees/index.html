@@ -142,11 +142,11 @@ function init3d(){
       container:'map3d',
       style:'https://tiles.openfreemap.org/styles/liberty',
       bounds:[[77.6575,12.8432],[77.6684,12.8512]],
-      fitBoundsOptions:{padding:{top:170,bottom:130,left:50,right:50}, pitch:55, bearing:-15},
+      fitBoundsOptions:{padding:{top:150,bottom:110,left:30,right:30}, pitch:55, bearing:-15},
 attributionControl:{compact:true}
     });
     mlmap.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
-    mlmap.on('load', function(){
+    mlmap.on('load', function(){ fit3d();
       var layers = mlmap.getStyle().layers || [];
       var labelLayerId;
       layers.forEach(function(l){ if (l.type==='symbol' && l.layout && l.layout['text-field'] && !labelLayerId) labelLayerId = l.id; });
@@ -182,6 +182,12 @@ attributionControl:{compact:true}
   return mlLoading;
 }
 
+function fit3d(){
+  if (!mlmap) return;
+  mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:55, bearing:-15, duration:0});
+  if (mlmap.getZoom() < 14.2) mlmap.jumpTo({zoom:14.2});
+}
+
 /* ---------- view switching ---------- */
 var currentView = 'satellite';
 function setView(v){
@@ -197,7 +203,7 @@ function setView(v){
         currentView=prev; refreshButtons(); return;
       }
       mlmap.resize();
-      mlmap.fitBounds([[77.6575,12.8432],[77.6684,12.8512]], {padding:{top:170,bottom:130,left:50,right:50}, pitch:55, bearing:-15, duration:0});
+      fit3d();
       currentView = v; refreshButtons();
     });
     return;
