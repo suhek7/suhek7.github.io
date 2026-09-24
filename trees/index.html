@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The VIP trees of Infosys Bangalore</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { margin:0; height:100%; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#251f21; }
+  #map { position:fixed; inset:0; }
+  .panel { position:fixed; top:12px; left:12px; z-index:1000; background:rgba(255,255,255,.95); border-radius:12px; padding:14px 16px; max-width:340px; box-shadow:0 2px 12px rgba(0,0,0,.25); }
+  .panel h1 { font-size:17px; margin:0 0 4px; }
+  .panel p { font-size:12.5px; margin:4px 0; color:#585254; line-height:1.45; }
+  .legend { margin-top:8px; font-size:12px; color:#585254; }
+  .legend span { display:inline-flex; align-items:center; margin-right:12px; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; margin-right:5px; }
+  .dot.doc { background:#73a89a; }
+  .dot.approx { background:#fff; border:2px dashed #73a89a; width:9px; height:9px; }
+  .tree-pin { width:28px; height:28px; border-radius:50%; background:#73a89a; color:#fff; font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; border:2px solid #73a89a; box-shadow:0 1px 4px rgba(0,0,0,.45); }
+  .tree-pin.approx { background:rgba(255,255,255,.92); color:#73a89a; border-style:dashed; }
+  .leaflet-popup-content { width:250px !important; }
+  .pop img { width:100%; border-radius:8px; margin-bottom:6px; }
+  .pop h3 { margin:0 0 2px; font-size:15px; }
+  .pop .role { font-size:12px; color:#585254; margin:0 0 6px; }
+  .pop table { font-size:12.5px; border-collapse:collapse; }
+  .pop td { padding:2px 8px 2px 0; vertical-align:top; }
+  .pop td:first-child { color:#585254; white-space:nowrap; }
+  .pop .src { margin-top:6px; font-size:12px; }
+  .pop .credit { font-size:11px; color:#8a8486; margin-top:2px; }
+  .pop .note { margin-top:6px; font-size:12px; background:#f4efec; border-radius:8px; padding:6px 8px; }
+  @media (max-width:600px){ .panel{max-width:250px; padding:10px 12px;} .panel h1{font-size:15px;} }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <h1>The VIP trees of Infosys Bangalore</h1>
+  <p>7 documented plantings on the Electronic City campus, 2001 to 2019. Every tree has a public source - tap a pin for the story.</p>
+  <div class="legend">
+    <span><i class="dot doc"></i>documented spot</span>
+    <span><i class="dot approx"></i>approximate pin</span>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var TREES = [
+ {n:1, planter:"Ratan Tata", role:"Chairman, Tata Group", species:"Tabebuia Rosea (pink trumpet)", date:"15 October 2001",
+  occasion:"Campus visit, hosted by Narayana Murthy and Mohandas Pai", where:"On campus, exact spot not published",
+  lat:12.8456, lng:77.6615, approx:true, photo:"photos/tata.jpg", credit:"Infosys on X, via Hindustan Times",
+  src:"https://www.hindustantimes.com/cities/bengaluru-news/tabebula-rosea-sapling-planted-by-ratan-tata-in-bengalurus-infosys-campus-23-years-ago-turns-into-a-tree-watch-101729236644079.html", srcLabel:"Hindustan Times, Oct 2024",
+  note:"Infosys shared then-and-now visuals in October 2024: the sapling is now a full tree."},
+ {n:2, planter:"Zhu Rongji", role:"Premier of China", species:"Scarlet flame, an evergreen", date:"January 2002",
+  occasion:"Official visit with his wife Lao An; he cleared Infosys to open its China unit", where:"On campus, exact spot not published",
+  lat:12.8444, lng:77.6633, approx:true,
+  src:"https://timesofindia.indiatimes.com/business/india-business/zhus-go-ahead-for-infosys-unit-in-china/articleshow/834722679.cms", srcLabel:"The Times of India, 17 Jan 2002",
+  note:"The paper notes the planting is part of the Infosys tradition for visiting dignitaries."},
+ {n:3, planter:"Bill Gates", role:"Chairman and Chief Software Architect, Microsoft", species:"Sapling, species not recorded", date:"13 November 2002",
+  occasion:"His maiden visit to India's Silicon Valley, welcomed by Karnataka CM S. M. Krishna", where:"On campus, exact spot not published",
+  lat:12.8449, lng:77.6603, approx:true, photo:"photos/gates.jpg", credit:"K. Venkatesh, rediff.com",
+  src:"https://business.rediff.com/money/2002/nov/13sld9.htm", srcLabel:"rediff.com photo essay, Nov 2002"},
+ {n:4, planter:"Truong Tan Sang", role:"President of Vietnam", species:"Sapling, species not recorded", date:"11 October 2011",
+  occasion:"Maiden visit to India, received by Executive Co-Chairman S. Gopalakrishnan", where:"On campus, exact spot not published",
+  lat:12.8462, lng:77.6585, approx:true,
+  src:"https://economictimes.indiatimes.com/tech/ites/vietnam-president-in-infosys-campus/articleshow/10317608.cms", srcLabel:"The Economic Times (PTI), Oct 2011"},
+ {n:5, planter:"Aung San Suu Kyi", role:"Nobel laureate, Myanmar", species:"Spanish Mahogany", date:"17 November 2012",
+  occasion:"First visit to India in nearly four decades; Infosys committed to train 100 Myanmar engineering students", where:"On campus, exact spot not published",
+  lat:12.8440, lng:77.6608, approx:true,
+  src:"https://www.business-standard.com/article/beyond-business/suu-kyi-visits-infosys-campus-112111700089_1.html", srcLabel:"Business Standard, Nov 2012"},
+ {n:6, planter:"Andrew Ng", role:"AI pioneer, founder of Coursera", species:"The campus's 'first AI tree'", date:"February 2018",
+  occasion:"Gave his talk 'AI is the new electricity' on campus during the same visit", where:"On campus, exact spot not published",
+  lat:12.8465, lng:77.6645, approx:true, photo:"photos/ng.jpg", credit:"Pramod Beligere on LinkedIn",
+  src:"https://www.linkedin.com/posts/adityashailaj_thank-you-for-hosting-us-padma-bhamidipati-activity-6374694516116553728-uz19", srcLabel:"Aditya Shailaj on LinkedIn",
+  note:"The planting is mentioned in employee posts; the photo shows his talk from the same visit."},
+ {n:7, planter:"Ashish Vidyarthi", role:"National Award-winning actor", species:"Swietenia Mahogany (Spanish Mahogany)", date:"2019",
+  occasion:"After curating and delivering two sessions at the development centre", where:"By the wall of the Infosys Eye building - the one documented spot",
+  lat:12.8503, lng:77.6674, approx:false, photo:"photos/vidyarthi.jpg", credit:"Ashish Vidyarthi on Instagram",
+  src:"https://www.instagram.com/ashishvidyarthi1/", srcLabel:"Ashish Vidyarthi on Instagram",
+  note:"Same species as Aung San Suu Kyi's 2012 tree. His photo shows the plaque: \u201cthis tree is planted by Ashish Vidyarthi\u201d."}
+];
+
+var map = L.map('map', {zoomControl:false}).setView([12.8462, 77.6623], 16);
+L.control.zoom({position:'bottomright'}).addTo(map);
+var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom:19}).addTo(map);
+var streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom:19});
+L.control.layers({"Satellite":sat, "Streets":streets}, null, {position:'bottomright'}).addTo(map);
+
+function popupHtml(t){
+  var h = '<div class="pop">';
+  if (t.photo) h += '<img src="'+t.photo+'" alt=""><div class="credit">'+t.credit+'</div>';
+  h += '<h3>'+t.n+'. '+t.planter+'</h3><div class="role">'+t.role+'</div><table>'+
+    '<tr><td>Tree</td><td>'+t.species+'</td></tr>'+
+    '<tr><td>When</td><td>'+t.date+'</td></tr>'+
+    '<tr><td>Occasion</td><td>'+t.occasion+'</td></tr>'+
+    '<tr><td>Where</td><td>'+t.where+'</td></tr></table>';
+  if (t.note) h += '<div class="note">'+t.note+'</div>';
+  h += '<div class="src">Source: <a href="'+t.src+'" target="_blank" rel="noopener">'+t.srcLabel+'</a></div></div>';
+  return h;
+}
+TREES.forEach(function(t){
+  var icon = L.divIcon({className:'', html:'<div class="tree-pin'+(t.approx?' approx':'')+'">'+t.n+'</div>', iconSize:[28,28], iconAnchor:[14,14]});
+  L.marker([t.lat, t.lng], {icon:icon, title:t.n+'. '+t.planter}).addTo(map).bindPopup(popupHtml(t), {maxWidth:270});
+});
+</script>
+</body>
+</html>
