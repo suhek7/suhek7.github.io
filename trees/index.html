@@ -250,9 +250,17 @@ attributionControl:{compact:true}
 function fit3d(){
   if (!mlmap) return;
   mlmap.fitBounds([[77.6560,12.8425],[77.6700,12.8520]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:(window.innerWidth<768?50:60), bearing:-25, duration:0});
-  var z = mlmap.getZoom() - 0.45;
-  if (z < 13.8) z = 13.8;
-  mlmap.jumpTo({zoom:z});
+  var w = mlmap.getContainer().clientWidth, h = mlmap.getContainer().clientHeight;
+  for (var i=0;i<6;i++){
+    var ok = true;
+    for (var j=0;j<TREES.length;j++){
+      var p = mlmap.project([TREES[j].lng, TREES[j].lat]);
+      if (p.x < 26 || p.x > w-26 || p.y < 120 || p.y > h-70){ ok = false; break; }
+    }
+    if (ok) break;
+    mlmap.jumpTo({zoom: mlmap.getZoom() - 0.35});
+  }
+  if (mlmap.getZoom() < 13.8) mlmap.jumpTo({zoom:13.8});
 }
 
 /* ---------- view switching ---------- */
