@@ -8,6 +8,7 @@
 <style>
   html, body { margin:0; height:100%; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#251f21; }
   #map, #map3d { position:fixed; inset:0; }
+  #map { background:#dfe9cf; }
   #map3d { display:none; }
   .panel { position:fixed; top:12px; left:12px; z-index:1000; background:rgba(255,255,255,.95); border-radius:12px; padding:14px 16px; max-width:340px; box-shadow:0 2px 12px rgba(0,0,0,.25); }
   .panel h1 { font-size:17px; margin:0 0 4px; }
@@ -145,7 +146,7 @@ function init3d(){
       zoom:z,
       pitch:55,
       bearing:-15,
-      attributionControl:{compact:true, customAttribution:'&copy; <a href="https://openfreemap.org">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
+attributionControl:{compact:true}
     });
     mlmap.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
     mlmap.on('load', function(){
@@ -190,11 +191,17 @@ function setView(v){
   if (v === currentView) return;
   var prev = currentView;
   if (v === '3d'){
+    document.getElementById('map3d').style.display='block';
+    document.getElementById('map').style.visibility='hidden';
     init3d().then(function(ok){
-      if (!ok){ currentView=prev; refreshButtons(); return; }
-      if (mlmap){ var c=map.getCenter(); mlmap.jumpTo({center:[c.lng,c.lat], zoom:map.getZoom()}); }
-      document.getElementById('map3d').style.display='block';
-      document.getElementById('map').style.visibility='hidden';
+      if (!ok){
+        document.getElementById('map3d').style.display='none';
+        document.getElementById('map').style.visibility='visible';
+        currentView=prev; refreshButtons(); return;
+      }
+      mlmap.resize();
+      var c=map.getCenter();
+      mlmap.jumpTo({center:[c.lng,c.lat], zoom:map.getZoom()});
       currentView = v; refreshButtons();
     });
     return;
