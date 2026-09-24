@@ -250,7 +250,9 @@ attributionControl:{compact:true}
 function fit3d(){
   if (!mlmap) return;
   mlmap.fitBounds([[77.6560,12.8425],[77.6700,12.8520]], {padding:{top:150,bottom:110,left:30,right:30}, pitch:(window.innerWidth<768?50:60), bearing:-25, duration:0});
-  if (mlmap.getZoom() < 13.8) mlmap.jumpTo({zoom:13.8});
+  var z = mlmap.getZoom() - 0.45;
+  if (z < 13.8) z = 13.8;
+  mlmap.jumpTo({zoom:z});
 }
 
 /* ---------- view switching ---------- */
