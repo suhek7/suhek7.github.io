@@ -102,6 +102,12 @@
   .topnav { display:flex; align-items:center; gap:10px; }
   .topnav .pillbtn { padding:7px 13px; }
   .topnav b { font-size:16px; }
+
+  /* ---------- review ---------- */
+  #review { min-height:100%; padding:20px 18px 40px; background:#0d1512; }
+  #reviewlist { margin-top:14px; }
+  #reviewlist .entry { align-items:flex-start; flex-wrap:wrap; }
+  .entry .okbtn { color:var(--acc); }
 </style>
 </head>
 <body>
@@ -112,9 +118,10 @@
   <h1>Campus Trees AR</h1>
   <p class="sub">Infosys Electronic City, Bangalore. Point your camera at the campus to see who planted each tree - or pin a new one yourself.</p>
   <button class="bigbtn primary" id="btnview"><b>View mode</b><span>Camera + compass: pinned trees float over the real campus, Pokemon-Go style.</span></button>
-  <button class="bigbtn" id="btncollect"><b>Collect mode</b><span>Standing at a tree? Photo + GPS pin + who planted it. Saves on your phone, syncs when the server is live.</span></button>
+  <button class="bigbtn" id="btncollect"><b>Collect mode</b><span>Standing at a tree? Photo + GPS pin + who planted it. Uploads go for review, then onto the shared map.</span></button>
   <button class="bigbtn" id="btnmine"><b>My pins</b><span id="minecount">Nothing pinned yet.</span></button>
   <button class="bigbtn" id="btnmap"><b>Full map</b><span>All 4 views of the campus map - satellite, streets, illustrated, 3D.</span></button>
+  <button class="bigbtn hidden" id="btnreview"><b>Review queue</b><span id="reviewcount">Approve colleague pins for the shared map.</span></button>
   <div class="foot">Dataset seeded from public sources; pins marked approximate until a campus walk fixes exact spots.<br>
   Idea for the AR app: Kalpit Tiwari. Built by Suranjith with Instinct.</div>
 </div>
@@ -151,6 +158,7 @@
       <button class="thumb" id="thumb-board"><img class="hidden" alt="Plaque photo preview"><span>Plaque photo - tap to retake</span></button>
     </div>
     <div id="ocrstatus" role="status">Plaque text is read on this phone, not uploaded. Check any suggested words.</div>
+    <label for="fcollector">Your name *</label><input id="fcollector" placeholder="Who is pinning this tree" autocomplete="name">
     <label for="ftree">Tree name (from plaque)</label><input id="ftree" placeholder="e.g. Pink trumpet tree" autocomplete="off">
     <label for="fplanter">Who planted it? *</label><input id="fplanter" placeholder="e.g. Ratan Tata" autocomplete="off">
     <label>Species (if known)</label><input id="fspecies" placeholder="e.g. Tabebuia Rosea" autocomplete="off">
@@ -163,10 +171,18 @@
   </div>
 </div>
 
+<!-- ================= REVIEW ================= -->
+<div id="review" class="hidden">
+  <div class="topnav"><button class="pillbtn" id="reviewback">&larr; Back</button><b>Review queue</b></div>
+  <div id="reviewstatus" style="margin:14px 0; font-size:12.5px; color:var(--dim); line-height:1.5;"></div>
+  <div id="reviewlist"></div>
+</div>
+
 <!-- ================= MY PINS ================= -->
 <div id="mine" class="hidden">
   <div class="topnav"><button class="pillbtn" id="mineback">&larr; Back</button><b>My pins</b></div>
   <div id="minetools">
+    <button class="pillbtn" id="btnsync">Sync now</button>
     <button class="pillbtn" id="btnexport">Export as JSON</button>
   </div>
   <div id="minelist"></div>
@@ -193,12 +209,117 @@ var LSKEY = 'campustrees.entries.v1';
 function loadEntries(){ try { return JSON.parse(localStorage.getItem(LSKEY)) || []; } catch(e){ return []; } }
 function saveEntries(l){ try { localStorage.setItem(LSKEY, JSON.stringify(l)); return true; } catch(e){ alert('Could not save - phone storage may be full. Export or delete older pins and try again.'); return false; } }
 
+/* ---------------- shared backend (Supabase free tier) ---------------- */
+var SUPABASE_URL = 'https://qsdipgtfhjrkprjvgvvg.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzZGlwZ3RmaGpya3ByanZndnZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTgxMzksImV4cCI6MjEwNTk5NDEzOX0.DUl6ybYDfLUVORW32GO8BEK5cpV79-t9XAfox9nLt8E';
+var SYNC_ON = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+var approvedRemote = [];
+
+function sbHeaders(extra){
+  var h = {apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY};
+  if (extra) for (var k in extra) h[k] = extra[k];
+  return h;
+}
+function dataUrlToBlob(d){
+  var parts = d.split(','), mime = parts[0].match(/:(.*?);/)[1];
+  var bin = atob(parts[1]), arr = new Uint8Array(bin.length);
+  for (var i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], {type:mime});
+}
+function newId(){
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+    var r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+function syncEntry(e){
+  if (!SYNC_ON || e.synced) return Promise.resolve(false);
+  var id = e.remoteId || (e.remoteId = newId());
+  var uploads = [];
+  ['tree','board'].forEach(function(kind){
+    var shot = kind==='tree' ? e.photo : e.boardPhoto;
+    if (!shot || e[kind+'Path']) return;
+    uploads.push(
+      fetch(SUPABASE_URL+'/storage/v1/object/tree-photos/'+id+'/'+kind+'.jpg', {
+        method:'POST', headers: sbHeaders({'Content-Type':'image/jpeg','x-upsert':'true'}), body: dataUrlToBlob(shot)
+      }).then(function(r){ if(!r.ok) throw new Error('photo upload failed'); e[kind+'Path'] = id+'/'+kind+'.jpg'; })
+    );
+  });
+  return Promise.all(uploads).then(function(){
+    var row = {
+      id: id, collector: e.collector||'', tree_name: e.treeName||'', planter: e.planter||'',
+      species: e.species||'', year: String(e.year||''), notes: e.notes||'',
+      lat: e.lat, lng: e.lng, acc: e.acc||null,
+      tree_photo: e.treePath||null, board_photo: e.boardPath||null
+    };
+    return fetch(SUPABASE_URL+'/rest/v1/tree_pins', {
+      method:'POST', headers: sbHeaders({'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'}), body: JSON.stringify(row)
+    }).then(function(r){ if(!r.ok) throw new Error('pin upload failed'); e.synced = true; return true; });
+  });
+}
+function syncAll(){
+  if (!SYNC_ON) return Promise.resolve(0);
+  var list = loadEntries();
+  return list.reduce(function(p, e){
+    return p.then(function(){ return syncEntry(e).catch(function(){}); });
+  }, Promise.resolve()).then(function(){ saveEntries(list); renderMine(); updateMineCount(); });
+}
+function fetchApproved(){
+  if (!SYNC_ON) return;
+  fetch(SUPABASE_URL+'/rest/v1/tree_pins?status=eq.approved&select=id,collector,tree_name,planter,species,year,lat,lng&order=created_at.asc', {headers: sbHeaders()})
+    .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(rows){
+      approvedRemote = rows.map(function(p, i){
+        return {n:'C'+(i+1), planter:p.planter, species:p.tree_name||p.species||'Species not recorded', date:p.year||'',
+          lat:p.lat, lng:p.lng, approx:false, community:true, collector:p.collector};
+      });
+    }).catch(function(){});
+}
+function photoUrl(path){ return SUPABASE_URL+'/storage/v1/object/public/tree-photos/'+path; }
+
+/* ---------------- review queue (owner only) ---------------- */
+var reviewSecret = '';
+var rq = location.search.match(/[?&]review=([^&]+)/);
+if (rq){ reviewSecret = decodeURIComponent(rq[1]); try{ sessionStorage.setItem('ct.review', reviewSecret); }catch(e){} }
+else { try{ reviewSecret = sessionStorage.getItem('ct.review')||''; }catch(e){} }
+function sbRpc(fn, args){
+  return fetch(SUPABASE_URL+'/rest/v1/rpc/'+fn, {method:'POST', headers: sbHeaders({'Content-Type':'application/json'}), body: JSON.stringify(args)})
+    .then(function(r){ if(!r.ok) return r.text().then(function(t){ throw new Error(t); }); return r.text(); });
+}
+function reviewRowHtml(p){
+  return '<div class="entry">'+
+    (p.tree_photo?'<img src="'+photoUrl(p.tree_photo)+'" alt="Tree">':'')+
+    (p.board_photo?'<img src="'+photoUrl(p.board_photo)+'" alt="Plaque">':'')+
+    '<div class="meta"><b>'+esc(p.tree_name||p.planter)+'</b><span>planted by '+esc(p.planter)+(p.year?' &middot; '+esc(p.year):'')+'</span>'+
+    '<span>pinned by <b>'+esc(p.collector)+'</b> &middot; '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>'+
+    (p.notes?'<span>'+esc(p.notes)+'</span>':'')+'</div>'+
+    '<button class="okbtn" data-act="approved" data-id="'+p.id+'">Approve</button>'+
+    '<button data-act="rejected" data-id="'+p.id+'">Reject</button></div>';
+}
+function loadReview(){
+  var st = document.getElementById('reviewstatus');
+  st.textContent = 'Loading pending pins...';
+  sbRpc('review_pending', {secret: reviewSecret}).then(function(t){
+    var rows = t ? JSON.parse(t) : [];
+    document.getElementById('reviewcount').textContent = rows.length ? rows.length+' waiting for review' : 'Queue empty';
+    st.textContent = rows.length ? 'Approved pins appear on the shared map and in View mode.' : 'Nothing waiting. New colleague pins appear here.';
+    document.getElementById('reviewlist').innerHTML = rows.map(reviewRowHtml).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#reviewlist button[data-act]'), function(b){
+      b.addEventListener('click', function(){
+        b.disabled = true;
+        sbRpc('review_set', {pin: b.dataset.id, action: b.dataset.act, secret: reviewSecret})
+          .then(function(){ loadReview(); fetchApproved(); }, function(e){ st.textContent = 'Could not update: '+e.message; b.disabled = false; });
+      });
+    });
+  }, function(){ st.textContent = 'Could not load the queue. Check your connection and reopen.'; });
+}
+
 function allTrees(){
   var mine = loadEntries().map(function(e, i){
     return {n:'M'+(i+1), planter:e.planter, species:e.treeName||e.species||'Species not recorded', date:e.year||'',
       lat:e.lat, lng:e.lng, approx:false, mine:true};
   });
-  return TREES.concat(mine);
+  return TREES.concat(mine).concat(approvedRemote);
 }
 
 /* ---------------- geo math ---------------- */
@@ -218,7 +339,7 @@ function angDiff(a, b){ var d=(a-b+540)%360-180; return d; }
 function fmtDist(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
 
 /* ---------------- screens ---------------- */
-var screens = ['home','view','collect','mine'];
+var screens = ['home','view','collect','mine','review'];
 function show(id){
   screens.forEach(function(s){ document.getElementById(s).classList.toggle('hidden', s!==id); });
   if (id !== 'view') stopView();
@@ -343,7 +464,7 @@ function draw(){
     html += '<div class="tag'+(t.mine?' mine':'')+'" style="left:'+x.toFixed(0)+'px; top:'+y.toFixed(0)+
       'px; transform:translate(-50%,-100%) scale('+sc.toFixed(2)+'); z-index:'+Math.round(10000-d)+'">'+
       '<div class="p">'+esc(t.planter)+'</div><div class="s">'+esc(t.species)+'</div>'+
-      '<div class="d">'+fmtDist(d)+(t.approx?' &middot; approx':'')+'</div>'+
+      '<div class="d">'+fmtDist(d)+(t.approx?' &middot; approx':'')+(t.collector?' &middot; by '+esc(t.collector):'')+'</div>'+
       '<div class="stem"></div><div class="dot"></div></div>';
   });
   labels.innerHTML = html;
@@ -380,6 +501,7 @@ function startCollect(){
   var run=++collectRun;
   captured={tree:null,board:null};
   ['ftree','fplanter','fspecies','fyear','fnotes'].forEach(function(id){ document.getElementById(id).value=''; });
+  document.getElementById('fcollector').value = (function(){ try{ return localStorage.getItem('campustrees.collector')||''; }catch(e){ return ''; } })();
   ['tree','board'].forEach(function(k){ var img=document.querySelector('#thumb-'+k+' img'); img.src=''; img.classList.add('hidden'); });
   document.getElementById('ocrstatus').textContent='Plaque text is read on this phone, not uploaded. Check any suggested words.';
   setSlot('tree'); bestFix=null;
@@ -456,7 +578,7 @@ async function readPlaque(shot){
   }catch(e){if(run===collectRun) status.textContent='Could not read plaque offline or from the OCR library. Type the name and planter yourself.';}
 }
 function validateCollect(){
-  document.getElementById('csave').disabled=!(bestFix && Date.now()-bestFix.timestamp<120000 && document.getElementById('fplanter').value.trim());
+  document.getElementById('csave').disabled=!(bestFix && Date.now()-bestFix.timestamp<120000 && document.getElementById('fplanter').value.trim() && document.getElementById('fcollector').value.trim());
 }
 function stopCollectCam(){
   ++collectRun;
@@ -465,6 +587,10 @@ function stopCollectCam(){
   if(gpsWatch!==null && navigator.geolocation){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;}
 }
 ['fplanter'].forEach(function(id){document.getElementById(id).addEventListener('input',validateCollect);});
+document.getElementById('fcollector').addEventListener('input',function(){
+  try{ localStorage.setItem('campustrees.collector', document.getElementById('fcollector').value.trim()); }catch(e){}
+  validateCollect();
+});
 ['tree','board'].forEach(function(slot){
   document.getElementById('slot-'+slot).addEventListener('click',function(){setSlot(slot);});
   document.getElementById('thumb-'+slot).addEventListener('click',function(){setSlot(slot);});
@@ -475,6 +601,7 @@ document.getElementById('csave').addEventListener('click',function(){
   validateCollect();if(document.getElementById('csave').disabled){collectStatus('Wait for a fresh GPS fix and add who planted it.');return;}
   var list=loadEntries();
   list.push({
+    collector:document.getElementById('fcollector').value.trim(),
     treeName:document.getElementById('ftree').value.trim(),
     planter:document.getElementById('fplanter').value.trim(),
     species:document.getElementById('fspecies').value.trim(),
@@ -484,7 +611,7 @@ document.getElementById('csave').addEventListener('click',function(){
     acc:Math.round(bestFix.coords.accuracy),at:new Date().toISOString(),
     photo:captured.tree,boardPhoto:captured.board,synced:false
   });
-  if(saveEntries(list)){updateMineCount();renderMine();show('mine');}
+  if(saveEntries(list)){updateMineCount();renderMine();show('mine');if(SYNC_ON)syncAll();}
 });
 
 /* ---------------- MY PINS ---------------- */
@@ -498,7 +625,7 @@ function renderMine(){
       (e.boardPhoto ? '<img src="'+e.boardPhoto+'" alt="Plaque">' : '') +
       '<div class="meta"><b>'+esc(e.treeName||e.planter)+'</b><span>'+esc(e.planter)+' &middot; '+esc(e.species||'species not recorded')+
       (e.year ? ' &middot; '+esc(e.year) : '') + '</span><span>'+e.lat.toFixed(6)+', '+e.lng.toFixed(6)+
-      ' &plusmn;'+e.acc+' m &middot; '+(e.synced?'synced':'on this phone')+'</span></div>' +
+      ' &plusmn;'+e.acc+' m &middot; '+(e.synced?'sent for review':'on this phone'+(SYNC_ON?' - will sync':''))+'</span></div>' +
       '<button data-i="'+i+'">Delete</button></div>';
   }).join('');
   Array.prototype.forEach.call(el.querySelectorAll('button'), function(b){
@@ -520,6 +647,11 @@ document.getElementById('btnexport').addEventListener('click', function(){
   setTimeout(function(){URL.revokeObjectURL(a.href);},60000);
 });
 document.getElementById('mineback').addEventListener('click', function(){ show('home'); });
+document.getElementById('btnsync').addEventListener('click', function(){ syncAll(); });
+document.getElementById('btnreview').addEventListener('click', function(){ show('review'); loadReview(); });
+document.getElementById('reviewback').addEventListener('click', function(){ show('home'); });
+if (reviewSecret && SYNC_ON) document.getElementById('btnreview').classList.remove('hidden');
+if (SYNC_ON){ syncAll(); fetchApproved(); }
 
 /* ---------------- home buttons ---------------- */
 document.getElementById('btnview').addEventListener('click', startView);
