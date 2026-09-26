@@ -1,0 +1,9 @@
+{
+  "name": "Campus Trees AR",
+  "short_name": "Trees AR",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0d1512",
+  "theme_color": "#20342b",
+  "icons": []
+}
