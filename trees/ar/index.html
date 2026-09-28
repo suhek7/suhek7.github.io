@@ -85,6 +85,16 @@
   .thumb.selected { border-color:var(--acc); color:var(--ink); }
   #ocrstatus { margin:5px 0; font-size:12px; color:var(--dim); line-height:1.4; }
   #cgps b { color:var(--acc); }
+  #recrop { margin:2px 0 8px; color:var(--acc); border-color:rgba(143,214,174,.5); }
+  #cropper { position:fixed; inset:0; z-index:100; background:#0d1512; display:flex; flex-direction:column;
+    padding:calc(env(safe-area-inset-top, 0px) + 18px) 14px calc(env(safe-area-inset-bottom, 0px) + 18px); }
+  #cropper h2 { margin:0 0 5px; font-size:19px; }
+  #cropper p { font-size:13px; color:var(--dim); line-height:1.4; margin:0 0 12px; }
+  #croparea { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  #cropcanvas { max-width:100%; max-height:100%; touch-action:none; border:1px solid rgba(255,255,255,.3); }
+  .cropactions { display:flex; gap:8px; margin-top:14px; }
+  .cropactions button { flex:1; min-width:0; padding:12px 6px; }
+  #cropapply { background:#2e7d52; font-weight:700; }
   .rowbtns { display:flex; gap:10px; margin-top:18px; }
   .rowbtns .pillbtn { flex:1; padding:13px; text-align:center; font-size:15px; }
   #csave { background:linear-gradient(135deg,#2e7d52,#1d5b3a); border:0; }
@@ -162,7 +172,8 @@
       <button class="thumb selected" id="thumb-tree"><img class="hidden" alt="Tree photo preview"><span>Tree photo - tap to retake</span></button>
       <button class="thumb" id="thumb-board"><img class="hidden" alt="Plaque photo preview"><span>Plaque photo - tap to retake</span></button>
     </div>
-    <div id="ocrstatus" role="status">Plaque text is read on this phone, not uploaded. Check any suggested words.</div>
+    <button class="pillbtn hidden" id="recrop">Crop plaque again</button>
+    <div id="ocrstatus" role="status">After the plaque photo, crop to the words on the board for OCR. Check any suggested words.</div>
     <label for="fcollector">Your name *</label><input id="fcollector" placeholder="Who is pinning this tree" autocomplete="name">
     <label for="ftree">Tree name (from plaque)</label><input id="ftree" placeholder="e.g. Pink trumpet tree" autocomplete="off">
     <label for="fplanter">Who planted it? *</label><input id="fplanter" placeholder="e.g. Ratan Tata" autocomplete="off">
@@ -173,6 +184,17 @@
       <button class="pillbtn" id="cback">Cancel</button>
       <button class="pillbtn" id="csave" disabled>Save pin</button>
     </div>
+  </div>
+</div>
+
+<!-- ================= PLAQUE CROP ================= -->
+<div id="cropper" class="hidden" role="dialog" aria-modal="true" aria-labelledby="croptitle">
+  <h2 id="croptitle">Crop the plaque</h2>
+  <p>Drag a box around the board's words. Keep the letters inside the green box, then tap Read plaque.</p>
+  <div id="croparea"><canvas id="cropcanvas" aria-label="Plaque photo crop area"></canvas></div>
+  <div class="cropactions">
+    <button class="pillbtn" id="cropcancel">Skip OCR</button>
+    <button class="pillbtn" id="cropapply">Read plaque</button>
   </div>
 </div>
 
@@ -490,7 +512,8 @@ document.getElementById('btndemo').addEventListener('click', function(){ enterDe
 document.getElementById('viewback').addEventListener('click', function(){ show('home'); });
 
 /* ---------------- COLLECT mode ---------------- */
-var gpsWatch=null, bestFix=null, captured={tree:null,board:null}, activeSlot='tree', collectRun=0, ocrWorker=null;
+var gpsWatch=null, bestFix=null, captured={tree:null,board:null}, activeSlot='tree', collectRun=0, ocrWorker=null, ocrSeq=0;
+var cropImage=null, cropBox=null, cropDrag=null, cropStored=null, originalBoardImage=null, autoFields={};
 function collectStatus(t){ document.getElementById('cstatus').textContent=t; }
 function setSlot(slot){
   activeSlot=slot;
@@ -512,11 +535,12 @@ function refreshPreview(){
 function startCollect(){
   show('collect');
   var run=++collectRun;
-  captured={tree:null,board:null};
+  closeCrop(); ++ocrSeq; originalBoardImage=null; autoFields={}; captured={tree:null,board:null};
   ['ftree','fplanter','fspecies','fyear','fnotes'].forEach(function(id){ document.getElementById(id).value=''; });
   document.getElementById('fcollector').value = (function(){ try{ return localStorage.getItem('campustrees.collector')||''; }catch(e){ return ''; } })();
   ['tree','board'].forEach(function(k){ var img=document.querySelector('#thumb-'+k+' img'); img.src=''; img.classList.add('hidden'); });
-  document.getElementById('ocrstatus').textContent='Plaque text is read on this phone, not uploaded. Check any suggested words.';
+  document.getElementById('ocrstatus').textContent='After the plaque photo, crop to the words on the board for OCR. Check any suggested words.';
+  document.getElementById('recrop').classList.add('hidden');
   setSlot('tree'); bestFix=null;
   document.getElementById('cgps').textContent='Getting GPS... stand still by the tree for a few seconds.';
   if(navigator.geolocation){
@@ -548,19 +572,25 @@ function downscale(img,maxSide,q){
   return c.toDataURL('image/jpeg',q);
 }
 function ingestPhoto(file, slot){
+  closeCrop(); ++ocrSeq;
   collectStatus('Saving '+(slot==='tree'?'tree':'plaque')+' photo...');
   var reader=new FileReader();
   reader.onload=function(){
     var img=new Image();
     img.onload=function(){
       var stored=downscale(img,1280,.75);   /* saved + uploaded copy: sharp, storage-safe */
-      var ocrShot=downscale(img,2400,.85);  /* OCR reads the sharper full-res-derived copy */
       captured[slot]=stored;
       var th=document.querySelector('#thumb-'+slot+' img'); th.src=stored; th.classList.remove('hidden');
       refreshPreview();
       collectStatus((slot==='tree'?'Tree':'Plaque')+' photo saved on this phone. Tap Take photo to retake.');
       if(slot==='tree' && !captured.board) setSlot('board');
-      if(slot==='board') readPlaque(ocrShot, stored);
+      if(slot==='board'){
+        autoFields={};
+        originalBoardImage=img; document.getElementById('recrop').classList.remove('hidden');
+        /* Try full-frame OCR as before; cropping remains available when the sign is tiny. */
+        readPlaque(downscale(img,2400,.85),stored,'full photo');
+        openCrop(img,stored);
+      }
       validateCollect();
     };
     img.onerror=function(){ collectStatus('That photo format could not be read here. Try taking it again.'); };
@@ -573,24 +603,102 @@ document.getElementById('cfile').addEventListener('change', function(){
   var file=this.files && this.files[0];
   if(file) ingestPhoto(file, activeSlot);
 });
+/* Crop from the original native-camera pixels, not the 1280px stored thumbnail. */
+function closeCrop(){ document.getElementById('cropper').classList.add('hidden'); cropImage=null; cropDrag=null; }
+function openCrop(img,stored){
+  cropImage=img; cropStored=stored; cropDrag=null;
+  cropBox={x:.12,y:.30,w:.76,h:.40};
+  document.getElementById('cropper').classList.remove('hidden');
+  requestAnimationFrame(drawCrop);
+}
+function drawCrop(){
+  if(!cropImage) return;
+  var area=document.getElementById('croparea'), c=document.getElementById('cropcanvas');
+  var width=area.clientWidth, height=area.clientHeight;
+  if(!width||!height) return;
+  var ratio=Math.min(width/cropImage.naturalWidth,height/cropImage.naturalHeight);
+  var w=Math.max(1,Math.floor(cropImage.naturalWidth*ratio)), h=Math.max(1,Math.floor(cropImage.naturalHeight*ratio));
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  c.style.width=w+'px'; c.style.height=h+'px';
+  c.width=Math.round(w*dpr); c.height=Math.round(h*dpr);
+  var ctx=c.getContext('2d'); ctx.scale(c.width/w,c.height/h);
+  ctx.drawImage(cropImage,0,0,w,h);
+  var b=cropBox, x=b.x*w,y=b.y*h,bw=b.w*w,bh=b.h*h;
+  ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,0,w,y);ctx.fillRect(0,y,x,bh);
+  ctx.fillRect(x+bw,y,w-x-bw,bh);ctx.fillRect(0,y+bh,w,h-y-bh);
+  ctx.strokeStyle='#8fd6ae';ctx.lineWidth=3;ctx.strokeRect(x,y,bw,bh);
+}
+function cropPoint(e){
+  var r=document.getElementById('cropcanvas').getBoundingClientRect();
+  return {x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),
+    y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};
+}
+var cropCanvas=document.getElementById('cropcanvas');
+cropCanvas.addEventListener('pointerdown',function(e){
+  if(!cropImage) return; e.preventDefault(); cropCanvas.setPointerCapture(e.pointerId);
+  cropDrag=cropPoint(e); cropBox={x:cropDrag.x,y:cropDrag.y,w:0,h:0};drawCrop();
+});
+cropCanvas.addEventListener('pointermove',function(e){
+  if(!cropDrag) return; e.preventDefault(); var p=cropPoint(e);
+  cropBox={x:Math.min(p.x,cropDrag.x),y:Math.min(p.y,cropDrag.y),
+    w:Math.abs(p.x-cropDrag.x),h:Math.abs(p.y-cropDrag.y)};drawCrop();
+});
+cropCanvas.addEventListener('pointerup',function(e){
+  if(!cropDrag) return; cropCanvas.releasePointerCapture(e.pointerId);cropDrag=null;
+  if(cropBox.w<.03 || cropBox.h<.03){cropBox={x:.12,y:.30,w:.76,h:.40};drawCrop();}
+});
+window.addEventListener('resize',drawCrop);
+document.getElementById('cropcancel').addEventListener('click',function(){
+  closeCrop(); document.getElementById('ocrstatus').textContent='OCR skipped. Tap Crop plaque again to try, or enter the details yourself.';
+});
+document.getElementById('recrop').addEventListener('click',function(){
+  if(!captured.board) return;
+  /* Reopen the original camera image kept only while this collect form is open. */
+  if(originalBoardImage) openCrop(originalBoardImage,captured.board);
+  else document.getElementById('ocrstatus').textContent='Retake the plaque photo to crop it again.';
+});
+document.getElementById('cropapply').addEventListener('click',function(){
+  if(!cropImage||!cropBox||cropBox.w<.03||cropBox.h<.03) return;
+  var img=cropImage, b=cropBox, stored=cropStored;
+  var sx=Math.round(b.x*img.naturalWidth),sy=Math.round(b.y*img.naturalHeight);
+  var sw=Math.max(1,Math.round(b.w*img.naturalWidth)),sh=Math.max(1,Math.round(b.h*img.naturalHeight));
+  var scale=Math.min(3,2400/Math.max(sw,sh));
+  var out=document.createElement('canvas');
+  out.width=Math.max(1,Math.round(sw*scale));out.height=Math.max(1,Math.round(sh*scale));
+  out.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,out.width,out.height);
+  var shot=out.toDataURL('image/jpeg',.9);
+  closeCrop();readPlaque(shot,stored,'crop');
+});
 function plaqueFields(text){
   var lines=text.split(/\n/).map(function(x){return x.replace(/\s+/g,' ').trim();}).filter(Boolean);
-  var name='';
-  for(var i=0;i<lines.length;i++){
-    var m=lines[i].match(/^(?:tree name|name of (?:the )?tree|species|botanical name)\s*[:\-]\s*(.+)$/i);
-    if(m && m[1].length>2){name=m[1];break;}
+  var name='', planter='', species='', year='';
+  lines.forEach(function(line){
+    var m=line.match(/^(?:tree name|name of (?:the )?tree|common name)\s*[:\-]\s*(.+)$/i);
+    if(m && m[1].length>2) name=m[1];
+    m=line.match(/^(?:species|botanical name|scientific name)\s*[:\-]\s*(.+)$/i);
+    if(m && m[1].length>2) species=m[1];
+    m=line.match(/(?:planted by|planted .* by|inaugurated by|by\s*[:\-])\s*[:\-]?\s*(.+)$/i);
+    if(m && m[1].length>2) planter=m[1];
+    m=line.match(/\b(19\d{2}|20\d{2})\b/);
+    if(m && !year) year=m[1];
+  });
+  /* Many campus signs show the botanical binomial at top and common name below,
+     without labels. Do not guess who planted it if the sign does not say. */
+  if(!species && lines.length){
+    var first=lines[0].replace(/["'*.]/g,'').trim();
+    if(/^[A-Za-z]{4,}\s+[A-Za-z]{4,}(?:\s+[A-Za-z]{3,})?$/.test(first) &&
+       !/^(planted|presented|inaugurated|dedicated)\s/i.test(first)) species=first;
   }
-
-  var planter='';
-  for(var j=0;j<lines.length;j++){
-    var p=lines[j].match(/(?:planted by|planted .* by)\s*[:\-]?\s*(.+)$/i);
-    if(p && p[1].length>2){planter=p[1];break;}
+  if(!name && species && lines.length>1){
+    var second=lines[1].replace(/["'*.]/g,'').trim();
+    if(/^[A-Za-z][A-Za-z \-]{3,45}$/.test(second) &&
+       !/^(planted|by|date|species|name|infosys)\b/i.test(second)) name=second;
   }
-  return {name:name,planter:planter};
+  return {name:name,planter:planter,species:species,year:year};
 }
-async function readPlaque(shot, stored){
-  var run=collectRun, status=document.getElementById('ocrstatus');
-  status.textContent='Reading plaque on this phone (first use downloads a free OCR language pack)...';
+async function readPlaque(shot, stored, source){
+  var run=collectRun, seq=source==='crop' ? ++ocrSeq : ocrSeq, status=document.getElementById('ocrstatus');
+  status.textContent='Reading '+source+' on this phone (first use downloads a free OCR language pack)...';
   try{
     if(!window.Tesseract){
       await new Promise(function(resolve,reject){
@@ -598,22 +706,27 @@ async function readPlaque(shot, stored){
         script.onload=resolve;script.onerror=reject;document.head.appendChild(script);
       });
     }
-    if(!ocrWorker) ocrWorker=await Tesseract.createWorker('eng');
-    var result=await ocrWorker.recognize(shot);
-    if(run!==collectRun || captured.board!==stored) return;
+    if(!ocrWorker) ocrWorker=Tesseract.createWorker('eng');
+    var worker=await ocrWorker;
+    var result=await worker.recognize(shot);
+    if(run!==collectRun || seq!==ocrSeq || captured.board!==stored) return;
     var text=result.data.text.trim(), fields=plaqueFields(text);
-    if(fields.name && !document.getElementById('ftree').value.trim()) document.getElementById('ftree').value=fields.name;
-    if(fields.planter && !document.getElementById('fplanter').value.trim()) document.getElementById('fplanter').value=fields.planter;
-    status.textContent=text ? 'Read from plaque: '+text.replace(/\s+/g,' ').slice(0,180)+'. Check and edit the suggested fields.' :
-      'No readable words found. Type the tree name and planter from the plaque.';
+    [['ftree','name'],['fplanter','planter'],['fspecies','species'],['fyear','year']].forEach(function(pair){
+      var input=document.getElementById(pair[0]), suggestion=fields[pair[1]];
+      if(suggestion && (!input.value.trim() || input.value===autoFields[pair[0]])){
+        input.value=suggestion; autoFields[pair[0]]=suggestion;
+      }
+    });
+    status.textContent=text ? 'Read from '+source+': '+text.replace(/\s+/g,' ').slice(0,180)+'. Check the suggested fields. Crop again if the sign is too small.' :
+      'No readable words found. Crop more tightly or retake the plaque photo.';
     validateCollect();
-  }catch(e){if(run===collectRun) status.textContent='Could not read plaque offline or from the OCR library. Type the name and planter yourself.';}
+  }catch(e){if(run===collectRun && seq===ocrSeq) status.textContent='Could not read plaque offline or from the OCR library. Check your connection or enter the details yourself.';}
 }
 function validateCollect(){
   document.getElementById('csave').disabled=!(bestFix && Date.now()-bestFix.timestamp<120000 && document.getElementById('fplanter').value.trim() && document.getElementById('fcollector').value.trim());
 }
 function stopCollectCam(){
-  ++collectRun;
+  closeCrop(); originalBoardImage=null; ++ocrSeq; ++collectRun;
   if(gpsWatch!==null && navigator.geolocation){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;}
 }
 ['fplanter'].forEach(function(id){document.getElementById(id).addEventListener('input',validateCollect);});
