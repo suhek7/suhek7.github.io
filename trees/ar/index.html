@@ -64,7 +64,10 @@
   /* ---------- collect ---------- */
   #collect { position:fixed; inset:0; display:flex; flex-direction:column; background:#0d1512; }
   #cwrap { position:relative; height:38%; min-height:220px; background:#000; }
-  #ccam { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #cpreview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #chint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:24px; color:rgba(255,255,255,.75); font-size:13.5px; line-height:1.7; background:linear-gradient(180deg,#14251c,#0d1512); }
+  #chint b { color:var(--acc); }
   #cform { flex:1; overflow-y:auto; padding:16px 18px calc(env(safe-area-inset-bottom, 0px) + 18px); }
   #cform label { display:block; font-size:12px; color:var(--dim); margin:14px 0 5px; }
   #cform input, #cform textarea { width:100%; border:1px solid rgba(255,255,255,.18); background:#16241d; color:var(--ink);
@@ -143,7 +146,9 @@
 <!-- ================= COLLECT ================= -->
 <div id="collect" class="hidden">
   <div id="cwrap">
-    <video id="ccam" autoplay playsinline muted></video>
+    <img id="cpreview" class="hidden" alt="Captured photo preview">
+    <div id="chint">Tap <b>Take photo</b> - your phone's own camera app opens. Use its zoom to read the plaque from the path; the shot comes back here.</div>
+    <input type="file" id="cfile" accept="image/*" capture="environment" style="display:none">
     <div class="ccontrols">
       <button class="pillbtn active" id="slot-tree">1 Tree</button>
       <button class="pillbtn" id="slot-board">2 Plaque</button>
@@ -152,7 +157,7 @@
   </div>
   <div id="cform">
     <div id="cgps">Getting GPS&hellip;</div>
-    <div id="cstatus" role="status">Camera preview starts here. Photos are taken only when you tap Take photo.</div>
+    <div id="cstatus" role="status">Photos open your phone's camera app and are taken only when you tap Take photo.</div>
     <div class="thumbs">
       <button class="thumb selected" id="thumb-tree"><img class="hidden" alt="Tree photo preview"><span>Tree photo - tap to retake</span></button>
       <button class="thumb" id="thumb-board"><img class="hidden" alt="Plaque photo preview"><span>Plaque photo - tap to retake</span></button>
@@ -485,7 +490,7 @@ document.getElementById('btndemo').addEventListener('click', function(){ enterDe
 document.getElementById('viewback').addEventListener('click', function(){ show('home'); });
 
 /* ---------------- COLLECT mode ---------------- */
-var cStream=null, gpsWatch=null, bestFix=null, captured={tree:null,board:null}, activeSlot='tree', collectRun=0, ocrWorker=null;
+var gpsWatch=null, bestFix=null, captured={tree:null,board:null}, activeSlot='tree', collectRun=0, ocrWorker=null;
 function collectStatus(t){ document.getElementById('cstatus').textContent=t; }
 function setSlot(slot){
   activeSlot=slot;
@@ -493,8 +498,16 @@ function setSlot(slot){
     document.getElementById('slot-'+k).classList.toggle('active',k===slot);
     document.getElementById('thumb-'+k).classList.toggle('selected',k===slot);
   });
-  collectStatus(captured[slot] ? 'Point at the '+(slot==='tree'?'tree':'plaque')+' and tap Take photo to retake.' :
-    'Point at the '+(slot==='tree'?'whole tree':'name board/plaque below it')+' and tap Take photo.');
+  refreshPreview();
+  collectStatus(captured[slot] ? 'Tap Take photo to retake the '+(slot==='tree'?'tree':'plaque')+' photo.' :
+    (slot==='tree' ? 'Tap Take photo - your camera app opens. Frame the whole tree.' :
+      'Tap Take photo - your camera app opens. Zoom in on the name board/plaque below the tree.'));
+}
+function refreshPreview(){
+  var shot=captured[activeSlot];
+  var img=document.getElementById('cpreview'), hint=document.getElementById('chint');
+  if(shot){ img.src=shot; img.classList.remove('hidden'); hint.classList.add('hidden'); }
+  else { img.removeAttribute('src'); img.classList.add('hidden'); hint.classList.remove('hidden'); }
 }
 function startCollect(){
   show('collect');
@@ -518,29 +531,48 @@ function startCollect(){
     },function(){ if(run===collectRun){ document.getElementById('cgps').textContent='No GPS fix - allow location and stand outdoors by the tree.'; validateCollect(); } },
     {enableHighAccuracy:true, maximumAge:0, timeout:20000});
   } else document.getElementById('cgps').textContent='Location is not available in this browser.';
-  if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-    navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}).then(function(st){
-      if(run!==collectRun){ st.getTracks().forEach(function(t){t.stop();}); return; }
-      cStream=st; var v=document.getElementById('ccam'); v.srcObject=st;
-      v.play().catch(function(){collectStatus('Tap the camera preview to start it, then Take photo.');});
-    }).catch(function(){ if(run===collectRun) collectStatus('Camera unavailable. Allow camera access and reopen Collect; a GPS-only pin can still save.'); });
-  } else collectStatus('Camera unavailable in this browser. A GPS-only pin can still save.');
+  refreshPreview();
   validateCollect();
 }
 function snapCollect(){
-  var v=document.getElementById('ccam');
-  if(!cStream || !v.videoWidth){collectStatus('Camera is not ready yet. Wait for the live preview and tap Take photo again.');return;}
-  var c=document.createElement('canvas'), scale=Math.min(1,800/v.videoWidth);
-  c.width=Math.round(v.videoWidth*scale); c.height=Math.round(v.videoHeight*scale);
-  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
-  var shot=c.toDataURL('image/jpeg',.68), slot=activeSlot;
-  captured[slot]=shot;
-  var img=document.querySelector('#thumb-'+slot+' img'); img.src=shot; img.classList.remove('hidden');
-  collectStatus((slot==='tree'?'Tree':'Plaque')+' photo saved on this phone. Preview stays live; tap Take photo to retake.');
-  if(slot==='tree' && !captured.board) setSlot('board');
-  if(slot==='board') readPlaque(shot);
-  validateCollect();
+  var f=document.getElementById('cfile');
+  f.value=''; /* let the same spot be photographed again */
+  f.click();  /* opens the phone's native camera app (zoom, full quality, lens choice) */
 }
+function downscale(img,maxSide,q){
+  var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+  var scale=Math.min(1,maxSide/Math.max(w,h));
+  var c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',q);
+}
+function ingestPhoto(file, slot){
+  collectStatus('Saving '+(slot==='tree'?'tree':'plaque')+' photo...');
+  var reader=new FileReader();
+  reader.onload=function(){
+    var img=new Image();
+    img.onload=function(){
+      var stored=downscale(img,1280,.75);   /* saved + uploaded copy: sharp, storage-safe */
+      var ocrShot=downscale(img,2400,.85);  /* OCR reads the sharper full-res-derived copy */
+      captured[slot]=stored;
+      var th=document.querySelector('#thumb-'+slot+' img'); th.src=stored; th.classList.remove('hidden');
+      refreshPreview();
+      collectStatus((slot==='tree'?'Tree':'Plaque')+' photo saved on this phone. Tap Take photo to retake.');
+      if(slot==='tree' && !captured.board) setSlot('board');
+      if(slot==='board') readPlaque(ocrShot, stored);
+      validateCollect();
+    };
+    img.onerror=function(){ collectStatus('That photo format could not be read here. Try taking it again.'); };
+    img.src=reader.result;
+  };
+  reader.onerror=function(){ collectStatus('Could not read that photo. Try taking it again.'); };
+  reader.readAsDataURL(file);
+}
+document.getElementById('cfile').addEventListener('change', function(){
+  var file=this.files && this.files[0];
+  if(file) ingestPhoto(file, activeSlot);
+});
 function plaqueFields(text){
   var lines=text.split(/\n/).map(function(x){return x.replace(/\s+/g,' ').trim();}).filter(Boolean);
   var name='';
@@ -556,7 +588,7 @@ function plaqueFields(text){
   }
   return {name:name,planter:planter};
 }
-async function readPlaque(shot){
+async function readPlaque(shot, stored){
   var run=collectRun, status=document.getElementById('ocrstatus');
   status.textContent='Reading plaque on this phone (first use downloads a free OCR language pack)...';
   try{
@@ -568,7 +600,7 @@ async function readPlaque(shot){
     }
     if(!ocrWorker) ocrWorker=await Tesseract.createWorker('eng');
     var result=await ocrWorker.recognize(shot);
-    if(run!==collectRun || captured.board!==shot) return;
+    if(run!==collectRun || captured.board!==stored) return;
     var text=result.data.text.trim(), fields=plaqueFields(text);
     if(fields.name && !document.getElementById('ftree').value.trim()) document.getElementById('ftree').value=fields.name;
     if(fields.planter && !document.getElementById('fplanter').value.trim()) document.getElementById('fplanter').value=fields.planter;
@@ -582,8 +614,6 @@ function validateCollect(){
 }
 function stopCollectCam(){
   ++collectRun;
-  if(cStream){cStream.getTracks().forEach(function(t){t.stop();});cStream=null;}
-  var v=document.getElementById('ccam');v.srcObject=null;
   if(gpsWatch!==null && navigator.geolocation){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;}
 }
 ['fplanter'].forEach(function(id){document.getElementById(id).addEventListener('input',validateCollect);});
